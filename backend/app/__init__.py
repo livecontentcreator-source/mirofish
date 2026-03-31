@@ -9,11 +9,14 @@ import warnings
 # 需要在所有其他导入之前设置
 warnings.filterwarnings("ignore", message=".*resource_tracker.*")
 
-from flask import Flask, request
+from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 
 from .config import Config
 from .utils.logger import setup_logger, get_logger
+
+# 前端构建产物路径 (生产环境: frontend/dist 在项目根目录)
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), '../../frontend/dist')
 
 
 def create_app(config_class=Config):
@@ -73,8 +76,29 @@ def create_app(config_class=Config):
     def health():
         return {'status': 'ok', 'service': 'MiroFish Backend'}
     
+    # ---- 生产环境：由 Flask 提供前端静态文件 ----
+    frontend_dist_abs = os.path.abspath(FRONTEND_DIST)
+    if os.path.isdir(frontend_dist_abs):
+        if should_log_startup:
+            logger.info(f"检测到前端构建产物，启用静态文件服务: {frontend_dist_abs}")
+
+        @app.route('/', defaults={'path': ''})
+        @app.route('/<path:path>')
+        def serve_frontend(path):
+            """
+            为 Vue SPA 提供服务:
+            - 如果请求的文件存在于 dist/ 中，直接返回
+            - 否则返回 index.html（支持前端路由）
+            """
+            file_path = os.path.join(frontend_dist_abs, path)
+            if path and os.path.isfile(file_path):
+                return send_from_directory(frontend_dist_abs, path)
+            return send_from_directory(frontend_dist_abs, 'index.html')
+    else:
+        if should_log_startup:
+            logger.info("未检测到前端构建产物，仅提供 API 服务（开发模式）")
+    
     if should_log_startup:
         logger.info("MiroFish Backend 启动完成")
     
     return app
-
